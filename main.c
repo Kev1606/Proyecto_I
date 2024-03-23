@@ -8,15 +8,15 @@
 #include <string.h>
 #include <sys/stat.h>
 
+// Estructuras y definiciones
 #define MAX_PROCESS 10  // Número máximo de procesos en el pool
 #define MSG_SIZE 256    // Tamaño del mensaje
 
 // Estructura para mensajes
 struct msgbuf {
-  long mtype;             // Tipo de mensaje
-  char mtext[MSG_SIZE];   // Contenido del mensaje
+    long mtype;             // Tipo de mensaje
+    char mtext[MSG_SIZE];   // Contenido del mensaje
 };
-
 
 int main(int argc, char *argv[]) {
 	// Verificar argumentos
@@ -47,7 +47,6 @@ int main(int argc, char *argv[]) {
   // Bucle principal para asignar archivos a procesos
   // Esperar a que todos los procesos hijos terminen
   // Analizar rendimiento
-  return 0;
+  return 0;   
 }
-
 // Funciones adicionales aquí
