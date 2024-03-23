@@ -30,7 +30,19 @@ int main(int argc, char *argv[]) {
   
   
   // Abrir directorio origen
+  DIR *dirp = opendir(src_dir);
+  if (dirp == NULL) {
+      perror("opendir");
+      exit(EXIT_FAILURE);
+  }
+  
+  
   // Crear cola de mensajes
+	int msgid = msgget(IPC_PRIVATE, 0666 | IPC_CREAT);
+	if (msgid == -1) {
+		  perror("msgget");
+		  exit(EXIT_FAILURE);
+	}
   // Crear pool de procesos
   // Bucle principal para asignar archivos a procesos
   // Esperar a que todos los procesos hijos terminen
