@@ -7,6 +7,8 @@
 #include <dirent.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <libgen.h>
 
 // Estructuras y definiciones
 #define MAX_PROCESS 10  // Número máximo de procesos en el pool
@@ -17,6 +19,51 @@ struct msgbuf {
     long mtype;             // Tipo de mensaje
     char mtext[MSG_SIZE];   // Contenido del mensaje
 };
+
+void copy_file(const char *src_path, const char *dst_path) {
+	FILE *src = fopen(src_path, "rb");
+	if (src == NULL) {
+		perror("fopen src");
+		return;
+	}
+
+	FILE *dst = fopen(dst_path, "wb");
+	if (dst == NULL) {
+		perror("fopen dst");
+		fclose(src);
+		return;
+	}
+
+	char buffer[1024];
+	size_t bytes;
+	while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+  	fwrite(buffer, 1, bytes, dst);
+	}
+
+	fclose(src);
+	fclose(dst);
+}
+
+void child_process(const char *src_dir, const char *dst_dir, int msgid) {
+	struct msgbuf msg;
+	char src_path[MSG_SIZE], dst_path[MSG_SIZE];
+
+	while (1) {
+		if (msgrcv(msgid, &msg, MSG_SIZE, 0, 0) == -1) {
+			perror("msgrcv");
+    	continue;
+		}
+
+		if (strcmp(msg.mtext, "FIN") == 0) {
+			break;  // Finalizar proceso
+		}
+
+		strcpy(src_path, msg.mtext);
+		snprintf(dst_path, MSG_SIZE, "%s/%s", dst_dir, basename(src_path));
+
+		copy_file(src_path, dst_path);
+	}
+}
 
 int main(int argc, char *argv[]) {
 	// Verificar argumentos
@@ -92,49 +139,4 @@ int main(int argc, char *argv[]) {
 	closedir(dirp);
 	msgctl(msgid, IPC_RMID, NULL);
   return 0;   
-}
-
-void copy_file(const char *src_path, const char *dst_path) {
-	FILE *src = fopen(src_path, "rb");
-	if (src == NULL) {
-		perror("fopen src");
-		return;
-	}
-
-	FILE *dst = fopen(dst_path, "wb");
-	if (dst == NULL) {
-		perror("fopen dst");
-		fclose(src);
-		return;
-	}
-
-	char buffer[1024];
-	size_t bytes;
-	while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
-  	fwrite(buffer, 1, bytes, dst);
-	}
-
-	fclose(src);
-	fclose(dst);
-}
-
-void child_process(const char *src_dir, const char *dst_dir, int msgid) {
-	struct msgbuf msg;
-	char src_path[MSG_SIZE], dst_path[MSG_SIZE];
-
-	while (1) {
-		if (msgrcv(msgid, &msg, MSG_SIZE, 0, 0) == -1) {
-			perror("msgrcv");
-    	continue;
-		}
-
-		if (strcmp(msg.mtext, "FIN") == 0) {
-			break;  // Finalizar proceso
-		}
-
-		strcpy(src_path, msg.mtext);
-		snprintf(dst_path, MSG_SIZE, "%s/%s", dst_dir, basename(src_path));
-
-		copy_file(src_path, dst_path);
-	}
 }
