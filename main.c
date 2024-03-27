@@ -42,10 +42,99 @@ int main(int argc, char *argv[]) {
 		perror("msgget");
 		exit(EXIT_FAILURE);
 	}
-  // Crear pool de procesos
-  // Bucle principal para asignar archivos a procesos
-  // Esperar a que todos los procesos hijos terminen
+	// Crear pool de procesos
+	pid_t pids[MAX_PROCESS];
+  for (int i = 0; i < MAX_PROCESS; ++i) {
+		pids[i] = fork();
+		if (pids[i] < 0) {
+		  perror("fork");
+		  exit(EXIT_FAILURE);
+		}
+
+		if (pids[i] == 0) { // Proceso hijo
+			child_process(src_dir, dst_dir, msgid);
+			exit(EXIT_SUCCESS);
+		}
+  }
+  
+	struct dirent *dp;
+	struct msgbuf msg;
+	int current_process = 0;
+
+	while ((dp = readdir(dirp)) != NULL) {
+		if (dp->d_type == DT_REG) {
+		  snprintf(msg.mtext, MSG_SIZE, "%s/%s", src_dir, dp->d_name);
+		  msg.mtype = current_process + 1;  // Asignar a un proceso hijo
+
+		  if (msgsnd(msgid, &msg, strlen(msg.mtext) + 1, 0) == -1) {
+		    perror("msgsnd");
+		    exit(EXIT_FAILURE);
+		  }
+
+		  current_process = (current_process + 1) % MAX_PROCESS;
+		}
+	}
+
+	// Enviar mensaje de finalización a cada proceso hijo
+	for (int i = 0; i < MAX_PROCESS; ++i) {
+		msg.mtype = i + 1;
+		strcpy(msg.mtext, "FIN");
+		msgsnd(msgid, &msg, strlen(msg.mtext) + 1, 0);
+	}
+	
+	for (int i = 0; i < MAX_PROCESS; ++i) {
+ 		wait(NULL);
+	}
+	
   // Analizar rendimiento
+  
+  // Cerrar directorio y cola de mensajes
+	closedir(dirp);
+	msgctl(msgid, IPC_RMID, NULL);
   return 0;   
 }
-// Funciones adicionales aquí
+
+void copy_file(const char *src_path, const char *dst_path) {
+	FILE *src = fopen(src_path, "rb");
+	if (src == NULL) {
+		perror("fopen src");
+		return;
+	}
+
+	FILE *dst = fopen(dst_path, "wb");
+	if (dst == NULL) {
+		perror("fopen dst");
+		fclose(src);
+		return;
+	}
+
+	char buffer[1024];
+	size_t bytes;
+	while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+  	fwrite(buffer, 1, bytes, dst);
+	}
+
+	fclose(src);
+	fclose(dst);
+}
+
+void child_process(const char *src_dir, const char *dst_dir, int msgid) {
+	struct msgbuf msg;
+	char src_path[MSG_SIZE], dst_path[MSG_SIZE];
+
+	while (1) {
+		if (msgrcv(msgid, &msg, MSG_SIZE, 0, 0) == -1) {
+			perror("msgrcv");
+    	continue;
+		}
+
+		if (strcmp(msg.mtext, "FIN") == 0) {
+			break;  // Finalizar proceso
+		}
+
+		strcpy(src_path, msg.mtext);
+		snprintf(dst_path, MSG_SIZE, "%s/%s", dst_dir, basename(src_path));
+
+		copy_file(src_path, dst_path);
+	}
+}
