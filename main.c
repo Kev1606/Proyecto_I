@@ -19,14 +19,13 @@ struct msgbuf {
     long mtype;             // Tipo de mensaje
     char mtext[MSG_SIZE];   // Contenido del mensaje
 };
-
 void copy_file(const char *src_path, const char *dst_path) {
 	FILE *src = fopen(src_path, "rb");
 	if (src == NULL) {
 		perror("fopen src");
 		return;
 	}
-
+	struct stat st;
 	FILE *dst = fopen(dst_path, "wb");
 	if (dst == NULL) {
 		perror("fopen dst");
@@ -36,6 +35,9 @@ void copy_file(const char *src_path, const char *dst_path) {
 
 	char buffer[1024];
 	size_t bytes;
+	//Imprimir el nombre del archivo y su tamaño
+	stat(src_path, &st);
+	printf("copiando %s (%ld bytes)\n", src_path, st.st_size);
 	while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
   	fwrite(buffer, 1, bytes, dst);
 	}
