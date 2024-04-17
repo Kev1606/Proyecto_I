@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <libgen.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 // Estructuras y definiciones
 #define MAX_PROCESS 10  // Número máximo de procesos en el pool
@@ -49,6 +51,9 @@ void copy_file(const char *src_path, const char *dst_path) {
 void child_process(const char *src_dir, const char *dst_dir, int msgid) {
 	struct msgbuf msg;
 	char src_path[MSG_SIZE], dst_path[MSG_SIZE];
+	struct timeval start, end;
+	double file_time;
+	int files_processed = 0;
 
 	while (1) {
 		if (msgrcv(msgid, &msg, MSG_SIZE, 0, 0) == -1) {
@@ -57,13 +62,19 @@ void child_process(const char *src_dir, const char *dst_dir, int msgid) {
 		}
 
 		if (strcmp(msg.mtext, "FIN") == 0) {
+			printf("Proceso %d: Procesados %d archivos\n", getpid(), files_processed);
 			break;  // Finalizar proceso
 		}
 
 		strcpy(src_path, msg.mtext);
 		snprintf(dst_path, MSG_SIZE, "%s/%s", dst_dir, basename(src_path));
 
+		gettimeofday(&start, NULL);
 		copy_file(src_path, dst_path);
+		gettimeofday(&end, NULL);
+		file_time = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+		printf("Proceso %d: Copiado %s en %.6f segundos\n", getpid(), src_path, file_time);
+		files_processed++;
 	}
 }
 
@@ -108,34 +119,45 @@ int main(int argc, char *argv[]) {
   
 	struct dirent *dp;
 	struct msgbuf msg;
+	struct timeval start, end;
+	struct rusage usage;
+	double elapsed;
 	int current_process = 0;
 
-	while ((dp = readdir(dirp)) != NULL) {
-		if (dp->d_type == DT_REG) {
-		  snprintf(msg.mtext, MSG_SIZE, "%s/%s", src_dir, dp->d_name);
-		  msg.mtype = current_process + 1;  // Asignar a un proceso hijo
+  gettimeofday(&start, NULL);
 
-		  if (msgsnd(msgid, &msg, strlen(msg.mtext) + 1, 0) == -1) {
-		    perror("msgsnd");
-		    exit(EXIT_FAILURE);
-		  }
-
-		  current_process = (current_process + 1) % MAX_PROCESS;
-		}
+  while ((dp = readdir(dirp)) != NULL) {
+  	if (dp->d_type == DT_REG) {
+  		snprintf(msg.mtext, MSG_SIZE, "%s/%s", src_dir, dp->d_name);
+  		msg.mtype = current_process + 1; // Asignar a un proceso hijo
+  		if (msgsnd(msgid, &msg, strlen(msg.mtext) + 1, 0) == -1) {
+  			perror("msgsnd");
+  			exit(EXIT_FAILURE);
+  		}
+  		current_process = (current_process + 1) % MAX_PROCESS;
+  	}
 	}
-
 	// Enviar mensaje de finalización a cada proceso hijo
 	for (int i = 0; i < MAX_PROCESS; ++i) {
 		msg.mtype = i + 1;
 		strcpy(msg.mtext, "FIN");
 		msgsnd(msgid, &msg, strlen(msg.mtext) + 1, 0);
 	}
-	
+
 	for (int i = 0; i < MAX_PROCESS; ++i) {
- 		wait(NULL);
+		wait(NULL);
 	}
-	
-  // Analizar rendimiento
+
+	gettimeofday(&end, NULL);
+	elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+
+	getrusage(RUSAGE_CHILDREN, &usage);
+
+	// Analizar rendimiento
+	printf("Análisis de rendimiento:\n");
+	printf("- Tiempo de ejecución: %.6f segundos\n", elapsed);
+	printf("- Tiempo de CPU utilizado: %ld.%06ld segundos\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
+	printf("- Grado de paralelismo: %d procesos\n", MAX_PROCESS);
   
   // Cerrar directorio y cola de mensajes
 	closedir(dirp);
