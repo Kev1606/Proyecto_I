@@ -13,7 +13,7 @@
 #include <sys/resource.h>
 
 // Estructuras y definiciones
-#define MAX_PROCESS 10  // Número máximo de procesos en el pool
+#define MAX_PROCESS 20  // Número máximo de procesos en el pool
 #define MSG_SIZE 256    // Tamaño del mensaje
 
 // Estructura para mensajes
@@ -21,6 +21,7 @@ struct msgbuf {
     long mtype;             // Tipo de mensaje
     char mtext[MSG_SIZE];   // Contenido del mensaje
 };
+
 void copy_file(const char *src_path, const char *dst_path) {
 	FILE *src = fopen(src_path, "rb");
 	if (src == NULL) {
@@ -48,7 +49,7 @@ void copy_file(const char *src_path, const char *dst_path) {
 	fclose(dst);
 }
 
-void child_process(const char *src_dir, const char *dst_dir, int msgid) {
+void child_process(const char *src_dir, const char *dst_dir, int msgid, pid_t pid) {
 	struct msgbuf msg;
 	char src_path[MSG_SIZE], dst_path[MSG_SIZE];
 	struct timeval start, end;
@@ -62,7 +63,7 @@ void child_process(const char *src_dir, const char *dst_dir, int msgid) {
 		}
 
 		if (strcmp(msg.mtext, "FIN") == 0) {
-			printf("Proceso %d: Procesados %d archivos\n", getpid(), files_processed);
+			printf("Proceso %d: Procesados %d archivos\n", pid, files_processed);
 			break;  // Finalizar proceso
 		}
 
@@ -73,7 +74,18 @@ void child_process(const char *src_dir, const char *dst_dir, int msgid) {
 		copy_file(src_path, dst_path);
 		gettimeofday(&end, NULL);
 		file_time = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
-		printf("Proceso %d: Copiado %s en %.6f segundos\n", getpid(), src_path, file_time);
+
+    // Escribir en el archivo de bitácora
+    FILE *logfile = fopen("logfile.csv", "a");
+    if (logfile == NULL) {
+      perror("fopen logfile");
+      exit(EXIT_FAILURE);
+    }
+    fprintf(logfile, "%s,%d,%.6f\n", basename(src_path), pid, file_time);
+    fflush(logfile);
+    fclose(logfile);
+
+		printf("Proceso %d: Copiado %s en %.6f segundos\n", pid, src_path, file_time);
 		files_processed++;
 	}
 }
@@ -102,6 +114,16 @@ int main(int argc, char *argv[]) {
 		perror("msgget");
 		exit(EXIT_FAILURE);
 	}
+
+  // Escribir encabezado en el archivo de bitácora
+  FILE *logfile = fopen("logfile.csv", "w");
+  if (logfile == NULL) {
+    perror("fopen logfile");
+    exit(EXIT_FAILURE);
+  }
+  fprintf(logfile, "Archivo,Subproceso,Tiempo\n");
+  fclose(logfile);
+  
 	// Crear pool de procesos
 	pid_t pids[MAX_PROCESS];
   for (int i = 0; i < MAX_PROCESS; ++i) {
@@ -112,7 +134,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		if (pids[i] == 0) { // Proceso hijo
-			child_process(src_dir, dst_dir, msgid);
+			child_process(src_dir, dst_dir, msgid, getpid());
 			exit(EXIT_SUCCESS);
 		}
   }
